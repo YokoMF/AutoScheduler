@@ -1,0 +1,12 @@
+---
+operation:
+  "OperationRuleOne":
+    - "name": "TeamA"
+      "description": "白班班组A"
+      "members": ["张三", "李四"]
+      "holidays": [0, 1]  # 0为周日，1为周一，依次类推
+      "extra": 2
+      "max_vacation_days": 10
+      "spring": 15
+      "national": 13
+      "labor": 11
