@@ -1,6 +1,7 @@
 import uuid
 import calendar
 import datetime
+import logging
 from collections import namedtuple
 import yaml
 from ortools.sat.python import cp_model
@@ -8,7 +9,7 @@ from sqlalchemy import select, func
 from components.dbmodel import HolidayCalendar, Duty, TaskId
 from components import session
 
-
+logger = logging.getLogger("AS")
 with open(r"./conf/parameter.yaml", "r", encoding="utf-8") as file:
     PARAMETERS = yaml.safe_load(file)
 
@@ -32,6 +33,7 @@ class OperationRule:
         raise NotImplementedError("schedule method must be implemented!")
 
     def demo(self):
+        logger.info(f"开始演示{self.parameter["name"]}排班结果")
         members = self.parameter["members"]
         _, days_in_month = calendar.monthrange(self.year, self.month)
         if self.status == cp_model.OPTIMAL or self.status == cp_model.FEASIBLE:
@@ -41,19 +43,20 @@ class OperationRule:
                     print(f"{self.solver.Value(self.vacation[(e, d)])} ", end="")
                 print()
         else:
-            print(f"{self.parameter["name"]} No solution found!")
+            logger.error(f"{self.parameter["name"]} No solution found!")
 
     def dump_to_excel(self):
         raise NotImplementedError("dump_to_excel method must be implemented!")
 
     def commit(self):
-        print(f"{self.parameter["name"]}-{self.uuid}: start committing schedule...")
+        logger.info(f"{self.parameter["name"]}-{self.uuid}: start committing schedule...")
         members = self.parameter["members"]
         _, days_in_month = calendar.monthrange(self.year, self.month)
         if self.status == cp_model.OPTIMAL or self.status == cp_model.FEASIBLE:
             task = TaskId(uuid=self.uuid, created_timestamp=datetime.datetime.now(), status="Pending")
             session.merge(task)
             session.commit()
+            logger.info(f"{self.parameter["name"]}-{self.uuid}:  commit pending.")
             for e in range(len(members)):
                 for d in range(1, days_in_month + 1):
                     if not self.solver.Value(self.vacation[(e, d)]):
@@ -61,14 +64,14 @@ class OperationRule:
                                     employee=members[e],
                                     type=self.type,
                                     taskid=self.uuid)
-                        print(duty.date, duty.type, duty.employee, duty.taskid)
+                        logger.debug(f"{duty.date}, {duty.type}, {duty.employee}, {duty.taskid}")
                         session.merge(duty)
                         session.commit()
                 task.status = "completed"
                 session.merge(task)
-            print(f"{self.uuid}: commit complete.")
+            logger.info(f"{self.parameter["name"]}-{self.uuid}:  commit complete.")
         else:
-            print(f"{self.uuid}: No solution found!")
+            logger.error(f"{self.parameter["name"]}-{self.uuid}: No solution found!")
 
 
 class OperationRuleDay(OperationRule):
@@ -151,7 +154,7 @@ class OperationRuleDay(OperationRule):
             self.status = status
             self.solver = solver
             self.vacation = vacation
-            print(f"{self.parameter["name"]} Solution found!")
+            logger.info(f"{self.parameter["name"]} Solution found!")
         else:
             self.status = "failed"
 
@@ -197,13 +200,14 @@ class OperationRuleBase(OperationRule):
             self.status = status
             self.solver = solver
             self.vacation = vacation
-            print(f"{self.parameter["name"]} Solution found!")
+            logger.info(f"{self.parameter["name"]} Solution found!")
         else:
             self.status = "failed"
 
 
     def dump_to_excel(self):
         pass
+    
 
 
 class OperationRuleNight(OperationRule):
@@ -247,7 +251,7 @@ class OperationRuleNight(OperationRule):
             self.status = status
             self.solver = solver
             self.vacation = vacation
-            print(f"{self.parameter["name"]} Solution found!")
+            logger.info(f"{self.parameter["name"]} Solution found!")
         else:
             self.status = "failed"
 
@@ -301,6 +305,7 @@ class OperationRuleMiddle(OperationRule):
         self.status = "success"
 
     def demo(self):
+        logger.info("开始演示中班排班结果。请先完成夜班排班！")
         _, num_of_days = calendar.monthrange(self.year, self.month)
         Member = namedtuple("Member", "name workdays")
         members = [Member(m["name"], m["workdays"]) for m in self.parameter["members"]]
@@ -316,13 +321,14 @@ class OperationRuleMiddle(OperationRule):
         pass
 
     def commit(self):
-        print(f"{self.parameter["name"]}-{self.uuid}: start committing schedule...")
+        logger.info(f"{self.parameter["name"]}-{self.uuid}: start committing schedule...")
         members = self.parameter["members"]
         _, days_in_month = calendar.monthrange(self.year, self.month)
         if self.status == "success":
             task = TaskId(uuid=self.uuid, created_timestamp=datetime.datetime.now(), status="Pending")
             session.merge(task)
             session.commit()
+            logger.info(f"{self.parameter["name"]}-{self.uuid}:  commit pending.")
             for e in range(len(members)):
                 for d in range(1, days_in_month + 1):
                     if not self.vacation[(e, d)]:
@@ -330,11 +336,11 @@ class OperationRuleMiddle(OperationRule):
                                     employee=members[e]["name"],
                                     type=self.type,
                                     taskid=self.uuid)
-                        print(duty.date, duty.type, duty.employee, duty.taskid)
+                        logger.debug(f"{duty.date}, {duty.type}, {duty.employee}, {duty.taskid}")
                         session.merge(duty)
                         session.commit()
                 task.status = "completed"
                 session.merge(task)
-            print(f"{self.uuid}: commit complete.")
+            logger.info(f"{self.parameter["name"]}-{self.uuid}:  commit complete.")
         else:
-            print(f"{self.uuid}: No solution found!")
+            logger.error(f"{self.uuid}: No solution found!")
