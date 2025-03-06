@@ -1,12 +1,52 @@
 ---
 operation:
-  "OperationRuleOne":
+  "OperationRuleDay":
     - "name": "TeamA"
       "description": "白班班组A"
-      "members": ["张三", "李四"]
-      "holidays": [0, 1]  # 0为周日，1为周一，依次类推
-      "extra": 2
+      "members": ["刁文珺", "诸旻玮"]
+      "holidays": [6, 0]  # 0为周1，1为周二，依次类推
+      "extra": 1          # 0为周1，1为周二，依次类推
       "max_vacation_days": 10
       "spring": 15
       "national": 13
       "labor": 11
+    - "name": "TeamB"
+      "description": "白班班组B"
+      "members": ["卫海舟", "姚国华"]
+      "holidays": [4, 5]  # 0为周1，1为周二，依次类推
+      "extra": 3          # 0为周1，1为周二，依次类推
+      "max_vacation_days": 10
+      "spring": 15
+      "national": 13
+      "labor": 11
+  "OperationRuleBase":
+    - "name": "TeamC"
+      "description": "白班正常班组"
+      "members": ["高嬿", "严志诚", "刘一鸣", "张宇晨", "陈怡恬"]
+  "OperationRuleNight":
+    - "name": "TeamD"
+      "description": "夜班班组D"
+      "members": ["施华", "张静", "宋莹佳"]
+      "base_date": "2025-02-28"
+    - "name": "TeamE"
+      "description": "夜班班组E"
+      "members": ["李卫东", "肖磊", "黄龙"]
+      "base_date": "2025-02-26"
+    - "name": "TeamF"
+      "description": "夜班班组F"
+      "members": ["朱晓明", "李祥", "李伟鹏"]
+      "base_date": "2025-02-27"
+  "OperationRuleMiddle":
+    - "name": "TeamG"
+      "description": "中班班组G"
+      "members":
+        - "name": "李卫东"
+          "workdays": [5]
+        - "name": "肖磊"
+          "workdays": [6]
+        - "name": "施华"
+          "workdays": [6]
+        - "name": "张静"
+          "workdays": [5]
+        - "name": "朱晓明"
+          "workdays": [5]
