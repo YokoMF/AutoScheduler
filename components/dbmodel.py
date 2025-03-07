@@ -2,7 +2,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlalchemy import String, PrimaryKeyConstraint
 import datetime
 
-__all__ = ['Base', 'HolidayCalendar', 'Duty', 'TaskId']
+__all__ = ['Base', 'HolidayCalendar', 'Duty', 'TaskId', "DutyCalendar"]
 
 class Base(DeclarativeBase):
     pass
@@ -35,3 +35,10 @@ class TaskId(Base):
     uuid: Mapped[str] = mapped_column(String(32), primary_key=True, comment="任务uuid编号")
     created_timestamp: Mapped[datetime.datetime] = mapped_column(comment="任务创建时间")
     status: Mapped[str] = mapped_column(comment="排班结果")
+
+class DutyCalendar(Base):
+    __tablename__ = "dutycalendar"
+
+    date: Mapped[datetime.date] = mapped_column(primary_key=True, comment="日期")
+    type: Mapped[str] = mapped_column(String(20), comment="值班类型")
+    maintainer: Mapped[str] = mapped_column(String(20), comment="维护人员")
