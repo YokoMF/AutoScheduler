@@ -7,10 +7,10 @@ from components.rules.operation import (OperationRuleDay,
 
 for rule_name in PARAMETERS["operation"]:
     for i in range(len(PARAMETERS["operation"][rule_name])):
-        rule = eval(f"{rule_name}")(i, 2025, 3)
+        rule = eval(f"{rule_name}")(i, 2025, 4)
         rule.schedule()
         rule.commit()
 
 from components.report import DutyReport
-report = DutyReport(2025, 3)
+report = DutyReport(2025, 4)
 report.display()

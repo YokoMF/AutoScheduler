@@ -132,7 +132,7 @@ class OperationRuleDay(OperationRule):
             for e in range(num_of_employees):
                 model.Add(sum(vacation[(e, d)]
                               for d in days_in_month
-                              if datetime.date(year, month, d).weekday() == self.parameter["extra"]) == all_weekdays.count(self.parameter.extra))
+                              if datetime.date(year, month, d).weekday() == self.parameter["extra"]) == all_weekdays.count(self.parameter["extra"]))
 
         # 定义目标函数：尽量避免两人同时在extra日期同时休息
         all_extra_days = [d for d in days_in_month
