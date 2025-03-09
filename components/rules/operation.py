@@ -134,6 +134,16 @@ class OperationRuleDay(OperationRule):
                               for d in days_in_month
                               if datetime.date(year, month, d).weekday() == self.parameter["extra"]) == all_weekdays.count(self.parameter["extra"]))
 
+        # 避免休假日在extra日期导致无人值班
+        all_extra = [datetime.date(year, month, d) for d in days_in_month if datetime.date(year, month, d).weekday() == self.parameter["extra"]]
+        sqlstmt = select(HolidayCalendar).where(HolidayCalendar.date.in_(all_extra), HolidayCalendar.holiday != 0)
+        rows = session.execute(sqlstmt).scalars().all()
+        holidays = [row.date.day for row in rows]
+        for extra in all_extra:
+            d = extra.day
+            if d in holidays:
+                model.Add(sum(vacation[(e, d)] for e in range(num_of_employees)) > 0)
+
         # 定义目标函数：尽量避免两人同时在extra日期同时休息
         all_extra_days = [d for d in days_in_month
                           if datetime.date(year, month, d).weekday() == self.parameter["extra"]]
@@ -208,7 +218,6 @@ class OperationRuleBase(OperationRule):
     def dump_to_excel(self):
         pass
     
-
 
 class OperationRuleNight(OperationRule):
     def __init__(self, seq: int, year: int, month: int):

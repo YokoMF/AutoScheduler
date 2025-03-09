@@ -9,7 +9,7 @@ for rule_name in PARAMETERS["operation"]:
     for i in range(len(PARAMETERS["operation"][rule_name])):
         rule = eval(f"{rule_name}")(i, 2025, 4)
         rule.schedule()
-        rule.commit()
+        rule.demo()
 
 from components.report import DutyReport
 report = DutyReport(2025, 4)
