@@ -1,5 +1,5 @@
 from sqlalchemy import select, func
-from components.dbmodel import HolidayCalendar
+from components.dbmodel import HolidayCalendar, DutyCalendar
 from components import session
 from datetime import date
 
@@ -33,3 +33,10 @@ stmt = select(HolidayCalendar).where(HolidayCalendar.holiday != 0)
 rows = session.execute(stmt).scalars().all()
 for row in rows:
     print(row.date, row.holiday, row.comefrom)
+
+dutys = [DutyCalendar(date=date(2025, 3, 8), type="in_product", maintainer="system"),
+         DutyCalendar(date=date(2025, 3, 9), type="in_product", maintainer="system")]
+for duty in dutys:
+    session.merge(duty)
+    session.commit()
+

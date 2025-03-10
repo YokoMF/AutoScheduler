@@ -299,8 +299,8 @@ class OperationRuleMiddle(OperationRule):
 
         vacation = {}
         for e in range(num_of_employees):
-            sqlstmt = select(Duty).where(Duty.employee == members[e].name
-                                         and Duty.date.between(start, end))
+            sqlstmt = select(Duty).where(Duty.employee == members[e].name,
+                                         Duty.date.between(start, end))
             rows = session.execute(sqlstmt).scalars().all()
             workdays = [row.date for row in rows]
             for d in days_in_month:
