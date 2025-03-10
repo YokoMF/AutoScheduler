@@ -58,21 +58,23 @@ class ApplicationRuleNormal:
         self.shiftcalendar = ShiftCalendar(start, end)
 
     def schedule(self):
-        group_inproduct = self.get_members("A", "in_product")
-        group_holiday = self.get_members("A", "uat-weekend")
-        group_a = self.merge_group(group_inproduct, group_holiday)
+        total_a_inproduct, group_a_inproduct = self.get_members("A", "in_product")
+        total_a_holiday, group_a_holiday = self.get_members("A", "uat-weekend")
+        group_a = self.merge_group(group_a_inproduct, group_a_holiday)
+        total_a = total_a_inproduct + total_a_holiday
 
-        group_inproduct = self.get_members("B", "in_product")
-        group_holiday = self.get_members("B", "uat-weekend")
-        group_b = self.merge_group(group_inproduct, group_holiday)
+        total_b_inproduct, group_b_inproduct = self.get_members("B", "in_product")
+        _, group_b_holiday = self.get_members("B", "uat-weekend")
+        group_b = self.merge_group(group_b_inproduct, group_b_holiday)
 
-        all_employees = group_a + group_b
+        _, group_c = self.get_members("C", "uat-weekend")
+        all_employees = group_a + group_b + group_c
         num_of_employees = len(all_employees)
         person_index = {p: i for i, p in enumerate(all_employees)}
         days_in_period = (self.end - self.start).days + 1
         model = cp_model.CpModel()
 
-        # 设置模型变量： 每个值班人员每一天的工作状态{0: 工作, 1: 休假}
+        # 设置模型变量： 每个值班人员每一天的工作状态{0: 休假, 1: 工作}
         vacation = dict()
         for e in range(num_of_employees):
             for s in range(3):
@@ -83,16 +85,77 @@ class ApplicationRuleNormal:
         inproduct_days = [(day - self.start).days for day in self.shiftcalendar.get_days("in_product")]
         for d in inproduct_days:
             if (self.start + timedelta(days=d)).weekday() == 5:
-                model.Add(sum(vacation[(person_index(e), s, d)] == 2)
-                          for e in self.get_members("A", "in_product"))
+                model.Add(sum(vacation[(person_index[e], 0, d)]
+                              for e in group_a_inproduct) == 2)
+            if (self.start + timedelta(days=d)).weekday() == 6:
+                model.Add(sum(vacation[(person_index[e], 0, d)]
+                              for e in group_a_inproduct) == 1)
+                model.Add(sum(vacation[(person_index[e], 0, d)]
+                              for e in group_b_inproduct) == 1)
 
+        # 约束2 安排双休日值班
+        weekend_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-weekend")]
+        for d in weekend_days:
+            if (self.start + timedelta(days=d)).weekday() == 5:
+                model.Add(sum(vacation[(person_index[e], 1, d)]
+                              for e in group_a) == 1)
+                model.Add(sum(vacation[(person_index[e], 1, d)]
+                              for e in group_b) == 1)
+            if (self.start + timedelta(days=d)).weekday() == 6:
+                model.Add(sum(vacation[(person_index[e], 1, d)]
+                              for e in group_a) == 1)
+                model.Add(sum(vacation[(person_index[e], 1, d)]
+                              for e in group_c) == 1)
+
+        # 约束3 安排工作日值班
+        working_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-night")]
+        for d in working_days:
+            model.Add(sum(vacation[(person_index[e], 2, d)]
+                          for e in group_a) == 1)
+
+        # 约束4 双休日及投产值班人员公平分配
+        avg = total_a // len(group_a)
+        spdays = inproduct_days + weekend_days
+        for d in spdays:
+            for e in group_a:
+                total = sum(vacation[(person_index[e], s, d)] for s in range(2))
+                model.Add(total >= avg)
+                model.Add(total <= avg + 1)
+
+        mfdays = [(d - self.start).days for d in self.shiftcalendar.holidays if d.weekday() == 5]
+        avg = len(mfdays) // len(group_b)
+        for d in mfdays:
+            for e in group_b:
+                total = sum(vacation[(person_index[e], s, d)] for s in range(2))
+                model.Add(total >= avg)
+                model.Add(total <= avg + 1)
+
+        mfdays = [(d - self.start).days for d in self.shiftcalendar.holidays if d.weekday() != 5]
+        avg = len(mfdays) // len(group_c)
+        for d in mfdays:
+            total = sum(vacation[(person_index[e], 2, d)] for e in group_c)
+            model.Add(total >= avg)
+            model.Add(total <= avg + 1)
+
+        # 求解
+        solver = cp_model.CpSolver()
+        status = solver.Solve(model)
+
+        if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
+            for e in range(num_of_employees):
+                print(f"Employee {all_employees[e]}: ", end="")
+                for d in range(days_in_period):
+                        print(f"{solver.Value(vacation[(e, 0, d)])} ", end="")
+                print()
+        else:
+            print("No solution found!")
 
     def get_members(self, group_name: str, duty_type: str):
         """ 获取本轮值班人员
         依据各类型的值班天数，值班人员池，生成本轮值班的人员清单。
         :param group_name: 组类型
         :param duty_type: 值班类型
-        :return: 参与本轮值班的人员列表
+        :return: 总人次，参与本轮值班的人员列表
         """
         dutydays = self.shiftcalendar.get_days(duty_type)
         group = list()
@@ -134,7 +197,7 @@ class ApplicationRuleNormal:
         else:
             total = len(dutydays)
 
-        return group[:total]
+        return total, group[:total]
 
     @staticmethod
     def merge_group(origin: list, target: list):
