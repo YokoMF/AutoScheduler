@@ -146,9 +146,42 @@ class ApplicationRuleNormal:
             model.Add(condition <= avg + 1)
 
         # 开放值班投产及节假日值班间隔保证
+        spdays = weekend_days + inproduct_days
+        spdays.sort()
+        interval = len(group_a) - 4
+        for e in group_a:
+            for d in range(len(spdays) - interval):
+                model.Add(sum(vacation[(person_index[e], spdays[d + i])] for i in range(interval + 1)) <= 1)
+
+        # 开放夜间值班间隔保证
+        spdays = working_days
+        spdays.sort()
+        interval = 13
+        for e in group_a:
+            for d in range(len(spdays) - interval):
+                model.Add(sum(vacation[(person_index[e], spdays[d + i])] for i in range(interval + 1)) <= 1)
+
+        # 主机外员值班节假日间隔保证
+        spdays = weekend_days
+        spdays.sort()
+        interval = len(group_c) - 1
+        spdays = [d for d in spdays if (self.start + timedelta(days=d)).weekday() != 5]
+        for e in group_c:
+            for d in range(len(spdays) - interval):
+                model.AddExactlyOne(vacation[(person_index[e], spdays[d + i])] for i in range(interval + 1))
+
+        # 主机自有员工值班节假日间隔保证
+        spdays = weekend_days
+        spdays = [d for d in spdays if (self.start + timedelta(days=d)).weekday() != 6]
+        spdays += [d for d in inproduct_days if (self.start + timedelta(days=d)).weekday() != 5]
+        spdays.sort()
+        interval = len(group_b) - 1
+        print(spdays)
+        for e in group_b:
+            for d in range(len(spdays) - interval):
+                model.Add(sum(vacation[(person_index[e], spdays[d + i])] for i in range(interval + 1)) <= 1)
 
 
-        # 主机值班节假日间隔保证
         # 求解
         solver = cp_model.CpSolver()
         status = solver.Solve(model)
