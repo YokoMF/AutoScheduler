@@ -1,41 +1,45 @@
-import datetime
-import calendar
-from sqlalchemy import select
-from components.dbmodel import DutyCalendar, Duty
-from components import session
+# 约束2 安排双休日值班
+weekend_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-weekend")]
+for d in weekend_days:
+    if (self.start + timedelta(days=d)).weekday() == 5:
+        model.Add(sum(vacation[(person_index[e], 1, d)]
+                      for e in group_a) == 1)
+        model.Add(sum(vacation[(person_index[e], 1, d)]
+                      for e in group_b) == 1)
+    if (self.start + timedelta(days=d)).weekday() == 6:
+        model.Add(sum(vacation[(person_index[e], 1, d)]
+                      for e in group_a) == 1)
+        model.Add(sum(vacation[(person_index[e], 1, d)]
+                      for e in group_c) == 1)
 
-year = 2025
-month = 3
-_, num_of_days = calendar.monthrange(year, month)
-# 定义三个组的成员
-A_group = ["陈雪莲", "邱凌", "卓燕斌", "万米",
-           "包云飞", "沈毅", "蒋炯明", "王仲晖",
-           "徐蒲金", "秦刚", "胡继云", "刘敏",
-           "郭天赐", "孙俊敏", "陈栋"]
-B_group = ["张南", "徐升", "余行方"]
-C_group = ["祁玉权", "何超超"]
+# 约束3 安排工作日值班
+working_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-night")]
+for d in working_days:
+    model.Add(sum(vacation[(person_index[e], 2, d)]
+                  for e in group_a) == 1)
 
-# 确定本次排班的天数，以便确定人员数量和顺序
-start = datetime.date(year, month, 1)
-end = datetime.date(year, month, num_of_days)
-stmt = select(DutyCalendar).where(DutyCalendar.type == "inproduct"
-                                  and
-                                  DutyCalendar.date.between(start, end))
-rows = session.execute(stmt).scalars().all()
-inproduct_dates = [row.date for row in rows]
-max_a_group = len(A_group) if len(A_group) <=len(inproduct_dates) else len(rows)
-max_b_group = len(B_group) if len(B_group) <= len(inproduct_dates) else len(rows)
+# 约束4 双休日及投产值班人员公平分配
+avg = total_a // len(group_a)
+spdays = inproduct_days + weekend_days
+for d in spdays:
+    for e in group_a:
+        total = sum(vacation[(person_index[e], s, d)] for s in range(2))
+        model.Add(total >= avg)
+        model.Add(total <= avg + 1)
 
-inproduct_a_group = list()
-substitute_a_group = list()
-for person in A_group:
-    stmt = select(Duty).where(Duty.type == "inproduct" and Duty.employee == person).order_by(Duty.date.desc())
-    rows = session.execute(stmt).scalars().all()
-    if rows:
-        substitute_a_group.append(rows[0])
-    else:
-        inproduct_a_group.append(person)
-inproduct_a_group = sorted(inproduct_a_group, key=lambda duty: duty.date)
-if len(inproduct_a_group) < max_a_group:
-    inproduct_a_group += substitute_a_group[:max_a_group - len(inproduct_a_group)]
+mfdays = [(d - self.start).days for d in self.shiftcalendar.holidays if d.weekday() == 5]
+avg = len(mfdays) // len(group_b)
+for d in mfdays:
+    for e in group_b:
+        total = sum(vacation[(person_index[e], s, d)] for s in range(2))
+        model.Add(total >= avg)
+        model.Add(total <= avg + 1)
+
+mfdays = [(d - self.start).days for d in self.shiftcalendar.holidays if d.weekday() != 5]
+avg = len(mfdays) // len(group_c)
+for d in mfdays:
+    total = sum(vacation[(person_index[e], 2, d)] for e in group_c)
+    model.Add(total >= avg)
+    model.Add(total <= avg + 1)
+
 
