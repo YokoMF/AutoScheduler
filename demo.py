@@ -66,7 +66,6 @@ class ApplicationRuleNormal:
         total_b_inproduct, group_b_inproduct = self.get_members("B", "in_product")
         total_b_holiday, group_b_holiday = self.get_members("B", "uat-weekend")
         group_b = self.merge_group(group_b_inproduct, group_b_holiday)
-        total_b = total_b_holiday + total_b_inproduct
 
         _, group_c = self.get_members("C", "uat-weekend")
         all_employees = group_a + group_b + group_c
@@ -78,77 +77,78 @@ class ApplicationRuleNormal:
         # 设置模型变量： 每个值班人员每一天的工作状态{0: 休假, 1: 工作}
         vacation = dict()
         for e in range(num_of_employees):
-            for s in range(3):
-                for d in range(days_in_period):
-                    vacation[(e, s, d)] = model.NewBoolVar(f"{e}_shift_{s}_day_{d}")
+            for d in range(days_in_period):
+                vacation[(e, d)] = model.NewBoolVar(f"{e}_day_{d}")
+
+        inproduct_days = [(day - self.start).days for day in self.shiftcalendar.get_days("in_product")]
+        weekend_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-weekend")]
+        working_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-night")]
 
         # 约束1 优先安排投产值班
-        inproduct_days = [(day - self.start).days for day in self.shiftcalendar.get_days("in_product")]
         for d in inproduct_days:
             if (self.start + timedelta(days=d)).weekday() == 5:
-                model.Add(sum(vacation[(person_index[e], 0, d)]
+                model.Add(sum(vacation[(person_index[e], d)]
                               for e in group_a_inproduct) == 2)
             if (self.start + timedelta(days=d)).weekday() == 6:
-                model.Add(sum(vacation[(person_index[e], 0, d)]
-                              for e in group_a_inproduct) == 1)
-                model.Add(sum(vacation[(person_index[e], 0, d)]
-                              for e in group_b_inproduct) == 1)
+                model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_a_inproduct)
+                model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_b_inproduct)
+            model.Add(sum(vacation[person_index[e], d] for e in all_employees) == 2)
 
         # 约束2 安排双休日值班
-        weekend_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-weekend")]
         for d in weekend_days:
-            model.Add(sum(vacation[(person_index[e], 1, d)]
-                          for e in group_a) == 1)
+            model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_a)
             if (self.start + timedelta(days=d)).weekday() == 5:
-                model.Add(sum(vacation[(person_index[e], 1, d)]
-                              for e in group_b) == 1)
+                model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_b)
             elif (self.start + timedelta(days=d)).weekday() == 6:
-                model.Add(sum(vacation[(person_index[e], 1, d)]
-                              for e in group_c) == 1)
+                model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_c)
             else:
-                model.Add(sum(vacation[(person_index[e], 1, d)]
-                              for e in (group_c + group_b)) == 1)
+                model.AddExactlyOne(vacation[(person_index[e], d)] for e in (group_c + group_b))
 
         # 约束3 安排工作日值班
-        working_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-night")]
         for d in working_days:
-            model.Add(sum(vacation[(person_index[e], 2, d)]
-                          for e in group_a) == 1)
-
-        # 约束 每人每天只参加一种类型的值班
-        for e in all_employees:
-            for d in range(days_in_period):
-                model.AddExactlyOne(vacation[person_index[e], s, d] for s in range(3))
+            model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_a)
 
         # 约束4 投产值班人员值班次数公平分配
         avg = total_a_inproduct // len(group_a_inproduct)
         for e in group_a_inproduct:
-            total = sum(vacation[(person_index[e], 0, d)] for d in inproduct_days)
+            total = sum(vacation[(person_index[e], d)] for d in inproduct_days)
             model.Add(total >= avg)
             model.Add(total <= avg + 1)
 
+        # 双休日开放平均
         avg = total_a // len(group_a)
         spdays = inproduct_days + weekend_days
         for e in group_a:
-            condition = sum(vacation[(person_index[e], s, d)] for s in range(2) for d in spdays)
+            condition = sum(vacation[(person_index[e], d)] for d in spdays)
             model.Add(condition >= avg)
             model.Add(condition <= avg + 1)
 
-        avg = (total_a + len(working_days))// len(group_a)
-        spdays = inproduct_days + weekend_days + working_days
+        # 工作日开放平均
+        avg = len(working_days) // len(group_a)
         for e in group_a:
-            condition = sum(vacation[(person_index[e], s, d)] for s in range(2) for d in spdays)
+            condition = sum(vacation[person_index[e], d] for d in working_days)
             model.Add(condition >= avg)
             model.Add(condition <= avg + 1)
 
-        spdays = inproduct_days + weekend_days
-        avg = len(spdays) // len(group_b + group_c)
-        for e in (group_b + group_c):
-            condition = sum(vacation[(person_index[e], s, d)] for s in range(3) for d in spdays)
+        # 主机双休日平均
+        mf_days = [d for d in weekend_days if (self.start + timedelta(days=d)).weekday() == 5]
+        avg = len(mf_days) // len(group_b)
+        for e in group_b:
+            condition = sum(vacation[person_index[e], d] for d in mf_days)
             model.Add(condition >= avg)
-            model.Add(condition <= avg + 2)
+            model.Add(condition <= avg + 1)
+
+        mf_days = [d for d in weekend_days if (self.start + timedelta(days=d)).weekday() == 6]
+        avg = len(mf_days) // len(group_c)
+        for e in group_c:
+            condition = sum(vacation[person_index[e], d] for d in mf_days)
+            model.Add(condition >= avg)
+            model.Add(condition <= avg + 1)
+
+        # 开放值班投产及节假日值班间隔保证
 
 
+        # 主机值班节假日间隔保证
         # 求解
         solver = cp_model.CpSolver()
         status = solver.Solve(model)
@@ -157,8 +157,7 @@ class ApplicationRuleNormal:
             for e in range(num_of_employees):
                 print(f"Employee {all_employees[e]}: ", end="")
                 for d in range(days_in_period):
-                    # print(f"{solver.Value(vacation[(e, 2, d)])} ", end="")
-                    print(f"{solver.Value(induty[e, d])} ", end="")
+                    print(f"{solver.Value(vacation[(e, d)])} ", end="")
                 print()
         else:
             print("No solution found!")
