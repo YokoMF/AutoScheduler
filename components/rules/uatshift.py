@@ -1,9 +1,15 @@
 from datetime import date, timedelta
+import logging
+import yaml
+import uuid
 from sqlalchemy import select
 from components import session
 from components.dbmodel import DutyCalendar, Duty, HolidayCalendar
 from ortools.sat.python import cp_model
 
+logger = logging.getLogger("AS")
+with open(r"./conf/parameter.yaml", "r", encoding="utf-8") as file:
+    PARAMETERS = yaml.safe_load(file)
 
 class ShiftCalendar:
     def __init__(self, start: date, end: date):
@@ -25,7 +31,7 @@ class ShiftCalendar:
     def _generate_all_holidays_date(self):
         # 确认双休日的值班天数
         sqlstmt = select(HolidayCalendar).where(HolidayCalendar.holiday != 0,
-                                                HolidayCalendar.date.between(when_start, when_end))
+                                                HolidayCalendar.date.between(self.start, self.end))
         records = session.execute(sqlstmt).scalars().all()
         holidays = [record.date for record in records]
         holidays = list(set(holidays) - set(self.inproduct_days))
@@ -34,7 +40,7 @@ class ShiftCalendar:
         return holidays
 
     def _generate_all_working_date(self):
-        all_days = [(when_start + timedelta(days=i)) for i in range((self.end - self.start).days + 1)]
+        all_days = [(self.start + timedelta(days=i)) for i in range((self.end - self.start).days + 1)]
         working_days = list(set(all_days) - set(self.holidays) - set(self.inproduct_days))
         working_days.sort()
 
@@ -56,6 +62,13 @@ class ApplicationRuleNormal:
         self.start = start
         self.end = end
         self.shiftcalendar = ShiftCalendar(start, end)
+        self.parameter = PARAMETERS["uatgroup"]["UatShiftRule"]
+        self.status = None
+        self.vacation = None
+        self.solver = None
+        self.uuid = uuid.uuid4().hex
+        self.num_of_employees = 0
+        self.all_employees = []
 
     def schedule(self):
         total_a_inproduct, group_a_inproduct = self.get_members("A", "in_product")
@@ -69,7 +82,9 @@ class ApplicationRuleNormal:
 
         _, group_c = self.get_members("C", "uat-weekend")
         all_employees = group_a + group_b + group_c
+        self.all_employees = all_employees
         num_of_employees = len(all_employees)
+        self.num_of_employees = num_of_employees
         person_index = {p: i for i, p in enumerate(all_employees)}
         days_in_period = (self.end - self.start).days + 1
         model = cp_model.CpModel()
@@ -89,6 +104,7 @@ class ApplicationRuleNormal:
             if (self.start + timedelta(days=d)).weekday() == 5:
                 model.Add(sum(vacation[(person_index[e], d)]
                               for e in group_a_inproduct) == 2)
+                model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_c)
             if (self.start + timedelta(days=d)).weekday() == 6:
                 model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_a_inproduct)
                 model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_b_inproduct)
@@ -109,11 +125,12 @@ class ApplicationRuleNormal:
             model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_a)
 
         # 约束4 投产值班人员值班次数公平分配
-        avg = total_a_inproduct // len(group_a_inproduct)
-        for e in group_a_inproduct:
-            total = sum(vacation[(person_index[e], d)] for d in inproduct_days)
-            model.Add(total >= avg)
-            model.Add(total <= avg + 1)
+        if len(group_a_inproduct):
+            avg = total_a_inproduct // len(group_a_inproduct)
+            for e in group_a_inproduct:
+                total = sum(vacation[(person_index[e], d)] for d in inproduct_days)
+                model.Add(total >= avg)
+                model.Add(total <= avg + 1)
 
         # 双休日开放平均
         avg = total_a // len(group_a)
@@ -195,17 +212,27 @@ class ApplicationRuleNormal:
         status = solver.Solve(model)
 
         if status == cp_model.OPTIMAL or status == cp_model.FEASIBLE:
-            for e in range(num_of_employees):
-                print(f"Employee {all_employees[e]}: ", end="")
+            self.status = status
+            self.solver = solver
+            self.vacation = vacation
+            logger.info("UatShiftRule Solution found!")
+        else:
+            self.status = "failed"
+
+    def demo(self):
+        days_in_period = (self.end - self.start).days + 1
+        if self.status == cp_model.OPTIMAL or self.status == cp_model.FEASIBLE:
+            for e in range(self.num_of_employees):
+                print(f"Employee {self.all_employees[e]}: ", end="")
                 for d in range(days_in_period):
-                    print(f"{solver.Value(vacation[(e, d)])} ", end="")
+                    print(f"{self.solver.Value(self.vacation[(e, d)])} ", end="")
                 print()
         else:
             print("No solution found!")
 
     def get_members(self, group_name: str, duty_type: str):
         """ 获取本轮值班人员
-        依据各类型的值班天数，值班人员池，生成本轮值班的人员清单。
+        依据各类型的值班天数，值班人员池，计算并生成本轮值班的人员清单。
         :param group_name: 组类型
         :param duty_type: 值班类型
         :return: 总人次，参与本轮值班的人员列表
@@ -213,11 +240,11 @@ class ApplicationRuleNormal:
         dutydays = self.shiftcalendar.get_days(duty_type)
         group = list()
         if group_name == "A":
-            employees = A_group
+            employees = self.parameter[0]["members"]
         elif group_name == "B":
-            employees = B_group
+            employees = self.parameter[1]["members"]
         elif group_name == "C":
-            employees = C_group
+            employees = self.parameter[2]["members"]
         else:
             employees = []
 
@@ -225,7 +252,8 @@ class ApplicationRuleNormal:
             additions = list()
             for employee in employees:
                 sqlstmt = select(Duty).where(Duty.employee == employee,
-                                             Duty.type == duty_type).order_by(Duty.date.desc())
+                                             Duty.type == duty_type,
+                                             Duty.date < self.start).order_by(Duty.date.desc())
                 records = session.execute(sqlstmt).scalars().all()
                 if records:
                     additions.append(records[0])
@@ -255,7 +283,7 @@ class ApplicationRuleNormal:
     @staticmethod
     def merge_group(origin: list, target: list):
         """合并组
-        从target中剔除origin，按照顺序合并二组
+        从target中剔除origin，按照顺序合并二组，返回合并后的组。该方法用于生成参与投产和节假日值班的人员的顺序。
         :param origin:
         :param target:
         :return:
@@ -267,27 +295,3 @@ class ApplicationRuleNormal:
         final_team += origin
 
         return final_team
-
-
-
-# 定义三个组的成员
-A_group = ["陈雪莲", "邱凌", "卓燕斌", "万米",
-           "包云飞", "沈毅", "蒋炯明", "王仲晖",
-           "徐蒲金", "秦刚", "胡继云", "刘敏",
-           "郭天赐", "孙俊敏", "陈栋"]
-B_group = ["张南", "徐升", "余行方"]
-C_group = ["祁玉权", "何超超"]
-
-
-when_start = date(2025, 3, 1)
-when_end = date(2025, 6, 1)
-
-shift_calendar = ShiftCalendar(when_start, when_end)
-print("投产值班日：")
-print(shift_calendar.inproduct_days)
-print("节假日：")
-print(shift_calendar.holidays)
-
-abc = ApplicationRuleNormal(when_start, when_end)
-abc.schedule()
-
