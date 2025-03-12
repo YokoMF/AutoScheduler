@@ -12,7 +12,7 @@ class HolidayCalendar(Base):
     __tablename__ = 'holiday_calendar'
 
     date: Mapped[datetime.date] = mapped_column(primary_key=True, comment='日期')
-    holiday: Mapped[int] = mapped_column(comment='假日类型：0-工作日，1-周末，2-春节，3-国庆, 4-劳动节')
+    holiday: Mapped[int] = mapped_column(comment='假日类型：0-工作日，1-周末，2-春节，3-国庆, 4-劳动节, 5-其他法定假')
     comefrom: Mapped[str] = mapped_column(String(20), comment="数据来源：系统，人工维护", default="系统")
 
 
