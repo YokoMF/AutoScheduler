@@ -23,29 +23,65 @@ class ShiftCalendar:
 
     def _generate_all_inproduct_date(self):
         # 确认投产值班的天数
-        sqlstmt = select(DutyCalendar).where(DutyCalendar.type == "in_product",
-                                             DutyCalendar.date.between(self.start, self.end))
+        logger.info(f"Start calculate in_product day: {self.start}, End: {self.end}")
+        sqlstmt = select(SpecialCalendar).where(SpecialCalendar.type == "in_product",
+                                                SpecialCalendar.action == "insert",
+                                                SpecialCalendar.date.between(self.start, self.end))
         records = session.execute(sqlstmt).scalars().all()
         inproduct_days = [record.date for record in records]
+        logger.info(f"Found {len(inproduct_days)} in_product days.")
+        logger.info(f"{inproduct_days}")
 
         return inproduct_days
 
     def _generate_all_holidays_date(self):
         # 确认双休日的值班天数
+        logger.info(f"Start calculate holiday day: {self.start}, End: {self.end}")
         sqlstmt = select(HolidayCalendar).where(HolidayCalendar.holiday != 0,
                                                 HolidayCalendar.date.between(self.start, self.end))
         records = session.execute(sqlstmt).scalars().all()
         holidays = [record.date for record in records]
+        logger.info(f"Found {len(holidays)} holiday days.")
+        logger.info(f"{holidays}")
         holidays = list(set(holidays) - set(self.inproduct_days))
+        logger.info(f"Remove in_product days, {len(holidays)} holiday days left.")
+        sqlstmt = select(SpecialCalendar).where(SpecialCalendar.type == "uat-weekend",
+                                                SpecialCalendar.date.between(self.start, self.end))
+        records = session.execute(sqlstmt).scalars().all()
+        for record in records:
+            if record.action == "ignore":
+                if record.date in holidays:
+                    logger.info(f"Remove holiday day: {record.date}")
+                    holidays.remove(record.date)
+            elif record.action == "insert":
+                logger.info(f"Insert holiday day: {record.date}")
+                holidays.append(record.date)
+
+        holidays = list(set(holidays))
         holidays.sort()
 
         return holidays
 
     def _generate_all_working_date(self):
-        all_days = [(self.start + timedelta(days=i)) for i in range((self.end - self.start).days + 1)]
-        working_days = list(set(all_days) - set(self.holidays) - set(self.inproduct_days))
+        logger.info(f"Start calculate working day: {self.start}, End: {self.end}")
+        sqlstmt = select(HolidayCalendar).where(HolidayCalendar.holiday == 0,
+                                                HolidayCalendar.date.between(self.start, self.end))
+        records = session.execute(sqlstmt).scalars().all()
+        working_days = [record.date for record in records]
         working_days.sort()
-
+        sqlstmt = select(SpecialCalendar).where(SpecialCalendar.type == "uat-night",
+                                                SpecialCalendar.date.between(self.start, self.end))
+        records = session.execute(sqlstmt).scalars().all()
+        for record in records:
+            if record.action == "ignore":
+                if record.date in working_days:
+                    logger.info(f"Remove working day: {record.date}")
+                    working_days.remove(record.date)
+            elif record.action == "insert":
+                logger.info(f"Insert working day: {record.date}")
+                working_days.append(record.date)
+        logger.info(f"Found {len(working_days)} working days.")
+        logger.info(f"{working_days}")
         return working_days
 
     def get_days(self, duty_type: str):
@@ -97,9 +133,9 @@ class ApplicationRuleNormal:
             for d in range(days_in_period):
                 vacation[(e, d)] = model.NewBoolVar(f"{e}_day_{d}")
 
-        inproduct_days = [(day - self.start).days for day in self.shiftcalendar.get_days("in_product")]
-        weekend_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-weekend")]
-        working_days = [(day - self.start).days for day in self.shiftcalendar.get_days("uat-night")]
+        inproduct_days = [(day - self.start).days for day in self.shiftcalendar.inproduct_days]
+        weekend_days = [(day - self.start).days for day in self.shiftcalendar.holidays]
+        working_days = [(day - self.start).days for day in self.shiftcalendar.working_days]
 
         # 约束1 优先安排投产值班
         for d in inproduct_days:
