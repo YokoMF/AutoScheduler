@@ -6,7 +6,7 @@ when_end = date(2025,5,31)
 
 apc = ApplicationRuleNormal(when_start, when_end)
 apc.schedule()
-apc.dump_to_excel()
+apc.pretty_format()
 
 from components.report import RenderExcel
 

@@ -76,7 +76,7 @@ uatgroup:
         - "张南"
         - "徐升"
         - "余行方"
-    - "name": "ExternalStuff"
+    - "name": "ExternalStuffGroup"
       "description": "主机外员组"
       "members":
         - "何超超"

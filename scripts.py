@@ -1,6 +1,6 @@
 from datetime import date
 from sqlalchemy import select, func
-from components.dbmodel import Duty, DutyCalendar
+from components.dbmodel import Duty, SpecialCalendar
 from components import session
 
 daily = [
@@ -55,8 +55,9 @@ for duty in wait_to_process:
     session.commit()
 
 inproducts = [
-    DutyCalendar(date=date(2025,5,24), type="in_product", maintainer="system"),
-    DutyCalendar(date=date(2025,5,25), type="in_product", maintainer="system")
+    SpecialCalendar(date=date(2025,5,24), type="in_product", action="insert", maintainer="system"),
+    SpecialCalendar(date=date(2025,5,25), type="in_product", action="insert", maintainer="system"),
+    SpecialCalendar(date=date(2025,4,12), type="uat-weekend", action="ignore", maintainer="system"),
 ]
 for duty in inproducts:
     session.merge(duty)
