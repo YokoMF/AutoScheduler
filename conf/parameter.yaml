@@ -50,3 +50,34 @@ operation:
           "workdays": [5]
         - "name": "朱晓明"
           "workdays": [5]
+uatgroup:
+  UatShiftRule:
+    - "name": "OpenPlatformGroup"
+      "description": "开放平台组"
+      "members":
+        - "陈雪莲"
+        - "邱凌"
+        - "卓燕斌"
+        - "万米"
+        - "包云飞"
+        - "沈毅"
+        - "蒋炯明"
+        - "王仲晖"
+        - "徐蒲金"
+        - "秦刚"
+        - "胡继云"
+        - "刘敏"
+        - "郭天赐"
+        - "孙俊敏"
+        - "陈栋"
+    - "name": "MainframeGroup"
+      "description": "主机平台组"
+      "members":
+        - "张南"
+        - "徐升"
+        - "余行方"
+    - "name": "ExternalStuff"
+      "description": "主机外员组"
+      "members":
+        - "何超超"
+        - "祁玉权"

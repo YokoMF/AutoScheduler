@@ -1,15 +1,17 @@
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import logging
 import yaml
 import uuid
+import pandas as pd
 from sqlalchemy import select
 from components import session
-from components.dbmodel import DutyCalendar, Duty, HolidayCalendar
+from components.dbmodel import SpecialCalendar, Duty, HolidayCalendar
 from ortools.sat.python import cp_model
 
 logger = logging.getLogger("AS")
 with open(r"./conf/parameter.yaml", "r", encoding="utf-8") as file:
     PARAMETERS = yaml.safe_load(file)
+
 
 class ShiftCalendar:
     def __init__(self, start: date, end: date):
@@ -105,10 +107,11 @@ class ApplicationRuleNormal:
                 model.Add(sum(vacation[(person_index[e], d)]
                               for e in group_a_inproduct) == 2)
                 model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_c)
+                model.Add(sum(vacation[person_index[e], d] for e in all_employees) == 3)
             if (self.start + timedelta(days=d)).weekday() == 6:
                 model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_a_inproduct)
                 model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_b_inproduct)
-            model.Add(sum(vacation[person_index[e], d] for e in all_employees) == 2)
+                model.Add(sum(vacation[person_index[e], d] for e in all_employees) == 2)
 
         # 约束2 安排双休日值班
         for d in weekend_days:
@@ -229,6 +232,61 @@ class ApplicationRuleNormal:
                 print()
         else:
             print("No solution found!")
+
+    def pretty_format(self):
+        days_in_period = (self.end - self.start).days + 1
+        if self.status == cp_model.OPTIMAL or self.status == cp_model.FEASIBLE:
+            for d in range(days_in_period):
+                print(datetime.strftime(self.start + timedelta(days=d), format="%Y-%m-%d"), end=" ")
+                for e in range(self.num_of_employees):
+                    if self.solver.Value(self.vacation[(e, d)]) == 1:
+                        print(f"{self.all_employees[e]} ", end="")
+                print()
+        else:
+            print("No solution found!")
+
+    def dump_to_excel(self):
+        number_to_chinese = {
+            1: '一',
+            2: '二',
+            3: '三',
+            4: '四',
+            5: '五',
+            6: '六',
+            7: '日'
+        }
+        all_days = (self.shiftcalendar.inproduct_days
+                    + self.shiftcalendar.working_days
+                    + self.shiftcalendar.holidays)
+        all_days.sort()
+
+        days_in_period = (self.end - self.start).days + 1
+        group_a = self.parameter[0]["members"]
+        shifts = []
+        for d in range(days_in_period):
+            duty = [self.all_employees[e] for e in range(self.num_of_employees)
+                    if self.solver.Value(self.vacation[(e, d)]) == 1]
+            current = [None, None, None]
+            for person in duty:
+                if person in group_a:
+                    if not current[0]:
+                        current[0] = person
+                    else:
+                        current[1] = person
+                else:
+                    current[2] = person
+            shifts.append(current)
+
+        data = {
+            '日期': [datetime.strftime(d, format="%Y年%m月%d日") for d in all_days],
+            '周天': [f"周{number_to_chinese[d.isoweekday()]}" for d in all_days],
+            '开放值班人员A': [e[0] for e in shifts],
+            '开放值班人员B': [e[1] for e in shifts],
+            '主机值班人员': [e[2] for e in shifts],
+        }
+        df = pd.DataFrame(data)
+        # 将 DataFrame 写入 Excel 文件
+        df.to_excel('output.xlsx', index=False)
 
     def get_members(self, group_name: str, duty_type: str):
         """ 获取本轮值班人员
