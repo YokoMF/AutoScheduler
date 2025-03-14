@@ -77,7 +77,7 @@ class RenderExcel:
         ws.column_dimensions['B'].width = 9
         ws.column_dimensions['C'].width = 20
         ws.column_dimensions['D'].width = 20
-        ws.column_dimensions['F'].width = 20
+        ws.column_dimensions['E'].width = 20
 
         # 定义绿色底纹样式
         green_fill = PatternFill(start_color="244062", end_color="244062", fill_type="solid")

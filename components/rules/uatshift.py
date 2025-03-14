@@ -5,7 +5,7 @@ import uuid
 import pandas as pd
 from sqlalchemy import select
 from components import session
-from components.dbmodel import SpecialCalendar, Duty, HolidayCalendar
+from components.dbmodel import SpecialCalendar, Duty, HolidayCalendar, TaskId
 from ortools.sat.python import cp_model
 
 logger = logging.getLogger("AS")
@@ -119,7 +119,9 @@ class ApplicationRuleNormal:
         group_b = self.merge_group(group_b_inproduct, group_b_holiday)
 
         _, group_c = self.get_members("C", "uat-weekend")
-        all_employees = group_a + group_b + group_c
+        _, group_a_working = self.get_members("A", "uat-night")
+
+        all_employees = list(set(group_a + group_b + group_c + group_a_working))
         self.all_employees = all_employees
         num_of_employees = len(all_employees)
         self.num_of_employees = num_of_employees
@@ -161,7 +163,7 @@ class ApplicationRuleNormal:
 
         # 约束3 安排工作日值班
         for d in working_days:
-            model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_a)
+            model.AddExactlyOne(vacation[(person_index[e], d)] for e in group_a_working)
 
         # 约束4 投产值班人员值班次数公平分配
         if len(group_a_inproduct):
@@ -180,8 +182,8 @@ class ApplicationRuleNormal:
             model.Add(condition <= avg + 1)
 
         # 工作日开放平均
-        avg = len(working_days) // len(group_a)
-        for e in group_a:
+        avg = len(working_days) // len(group_a_working)
+        for e in group_a_working:
             condition = sum(vacation[person_index[e], d] for d in working_days)
             model.Add(condition >= avg)
             model.Add(condition <= avg + 1)
@@ -221,7 +223,7 @@ class ApplicationRuleNormal:
         spdays = weekend_days + inproduct_days + working_days
         spdays.sort()
         interval = 7
-        for e in group_a:
+        for e in group_a_working:
             for d in range(len(spdays) - interval):
                 model.Add(sum(vacation[(person_index[e], spdays[d + i])] for i in range(interval + 1)) <= 1)
 
@@ -291,10 +293,6 @@ class ApplicationRuleNormal:
             6: '六',
             7: '日'
         }
-        all_days = (self.shiftcalendar.inproduct_days
-                    + self.shiftcalendar.working_days
-                    + self.shiftcalendar.holidays)
-        all_days.sort()
 
         days_in_period = (self.end - self.start).days + 1
         group_a = self.parameter[0]["members"]
@@ -314,8 +312,8 @@ class ApplicationRuleNormal:
             shifts.append(current)
 
         data = {
-            '日期': [datetime.strftime(d, format="%Y年%m月%d日") for d in all_days],
-            '周天': [f"周{number_to_chinese[d.isoweekday()]}" for d in all_days],
+            '日期': [datetime.strftime(self.start + timedelta(days=d), format="%Y年%m月%d日") for d in range(days_in_period)],
+            '周天': [f"周{number_to_chinese[(self.start + timedelta(days=d)).isoweekday()]}" for d in range(days_in_period)],
             '开放值班人员A': [e[0] for e in shifts],
             '开放值班人员B': [e[1] for e in shifts],
             '主机值班人员': [e[2] for e in shifts],
@@ -389,3 +387,36 @@ class ApplicationRuleNormal:
         final_team += origin
 
         return final_team
+
+    def commit(self):
+        all_days = (self.shiftcalendar.inproduct_days
+                    + self.shiftcalendar.working_days
+                    + self.shiftcalendar.holidays)
+        all_days.sort()
+        logger.info(f"UAT应用排班任务-{self.uuid}: start committing schedule...")
+        if self.status == cp_model.OPTIMAL or self.status == cp_model.FEASIBLE:
+            task = TaskId(uuid=self.uuid, created_timestamp=datetime.now(), status="Pending")
+            session.merge(task)
+            session.commit()
+            logger.info(f"UAT应用排班任务-{self.uuid}:  commit pending.")
+            for e in range(self.num_of_employees):
+                for d in range(len(all_days)):
+                    if not self.solver.Value(self.vacation[(e, d)]):
+                        if all_days[d] in self.shiftcalendar.inproduct_days:
+                            duty_type = "in_product"
+                        elif all_days[d] in self.shiftcalendar.holidays:
+                             duty_type = "uat-weekend"
+                        else:
+                            duty_type = "uat-night"
+                        duty = Duty(date=all_days[d],
+                                    employee=self.all_employees[e],
+                                    type=duty_type,
+                                    taskid=self.uuid)
+                        logger.debug(f"{duty.date}, {duty.type}, {duty.employee}, {duty.taskid}")
+                        session.merge(duty)
+                        session.commit()
+                task.status = "completed"
+                session.merge(task)
+            logger.info(f"{self.parameter["name"]}-{self.uuid}:  commit complete.")
+        else:
+            logger.error(f"{self.parameter["name"]}-{self.uuid}: No solution found!")

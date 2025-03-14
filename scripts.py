@@ -58,6 +58,8 @@ inproducts = [
     SpecialCalendar(date=date(2025,5,24), type="in_product", action="insert", maintainer="system"),
     SpecialCalendar(date=date(2025,5,25), type="in_product", action="insert", maintainer="system"),
     SpecialCalendar(date=date(2025,4,12), type="uat-weekend", action="ignore", maintainer="system"),
+    SpecialCalendar(date=date(2025, 4, 26), type="uat-weekend", action="ignore", maintainer="system"),
+
 ]
 for duty in inproducts:
     session.merge(duty)
